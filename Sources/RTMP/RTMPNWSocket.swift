@@ -71,7 +71,10 @@ final class RTMPNWSocket: RTMPSocketCompatible {
         totalBytesOut.mutate { $0 = 0 }
         queueBytesOut.mutate { $0 = 0 }
         inputBuffer.removeAll(keepingCapacity: false)
-        connection = NWConnection(to: NWEndpoint.hostPort(host: .init(withName), port: .init(integerLiteral: NWEndpoint.Port.IntegerLiteralType(port))), using: parameters)
+        
+        let resolvedHost = resolveHostWithIPv6Support(withName, port: port)
+        
+        connection = NWConnection(to: NWEndpoint.hostPort(host: .init(resolvedHost), port: .init(integerLiteral: NWEndpoint.Port.IntegerLiteralType(port))), using: parameters)
         connection?.viabilityUpdateHandler = viabilityDidChange(to:)
         connection?.stateUpdateHandler = stateDidChange(to:)
         connection?.start(queue: networkQueue)
@@ -88,6 +91,33 @@ final class RTMPNWSocket: RTMPSocketCompatible {
             timeoutHandler = newTimeoutHandler
             DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .seconds(timeout), execute: newTimeoutHandler)
         }
+    }
+    
+    private func resolveHostWithIPv6Support(_ host: String, port: Int) -> String {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        hints.ai_flags = AI_V4MAPPED | AI_ALL
+        
+        var result: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, String(port), &hints, &result) == 0 else {
+            return host
+        }
+        defer { freeaddrinfo(result) }
+        
+        var current = result
+        while let info = current {
+            if info.pointee.ai_family == AF_INET6 {
+                var addressBuffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                info.pointee.ai_addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { ptr in
+                    _ = inet_ntop(AF_INET6, &ptr.pointee.sin6_addr, &addressBuffer, socklen_t(INET6_ADDRSTRLEN))
+                }
+                return String(cString: addressBuffer)
+            }
+            current = info.pointee.ai_next
+        }
+        
+        return host
     }
 
     func close(isDisconnected: Bool) {
@@ -225,3 +255,4 @@ final class RTMPNWSocket: RTMPSocketCompatible {
         }
     }
 }
+
