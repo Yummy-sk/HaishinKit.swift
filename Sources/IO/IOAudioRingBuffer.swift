@@ -127,8 +127,9 @@ final class IOAudioRingBuffer {
         sampleTime += Int64(numSamples)
         if head == outputBuffer.frameLength {
             head = 0
-            if 0 < Int(audioPCMBuffer.frameLength) - numSamples {
-                append(audioPCMBuffer, offset: numSamples)
+            let remaining = Int(audioPCMBuffer.frameLength) - (offset + numSamples)
+            if remaining > 0 {
+                append(audioPCMBuffer, offset: offset + numSamples)
             }
         }
     }
